@@ -67,22 +67,24 @@ const OutputDisplay: React.FC<OutputDisplayProps> = ({ content, isLoading, outpu
                     return <div className="prose prose-slate max-w-none whitespace-pre-wrap">{content}</div>;
                 }
                 return (
-                    <MD
-                        remarkPlugins={[GFM]}
-                        className="prose prose-slate max-w-none"
-                        components={{
-                            h1: ({node, ...props}) => <h1 className="text-2xl font-bold" {...props} />,
-                            h2: ({node, ...props}) => <h2 className="text-xl font-semibold border-b pb-2 mt-4" {...props} />,
-                            h3: ({node, ...props}) => <h3 className="text-lg font-semibold mt-4" {...props} />,
-                            table: ({node, ...props}) => <table className="table-auto w-full my-4" {...props} />,
-                            thead: ({node, ...props}) => <thead className="bg-slate-100" {...props} />,
-                            th: ({node, ...props}) => <th className="px-4 py-2 text-left text-sm font-semibold text-slate-800" {...props} />,
-                            tr: ({node, ...props}) => <tr className="even:bg-slate-50" {...props} />,
-                            td: ({node, ...props}) => <td className="border-t border-slate-200 px-4 py-2 text-sm text-slate-700" {...props} />,
-                        }}
-                    >
-                        {content}
-                    </MD>
+                    // FIX: Wrap ReactMarkdown component in a div with prose classes to fix typing error and correctly apply styles.
+                    <div className="prose prose-slate max-w-none">
+                        <MD
+                            remarkPlugins={[GFM]}
+                            components={{
+                                h1: ({node, ...props}) => <h1 className="text-2xl font-bold" {...props} />,
+                                h2: ({node, ...props}) => <h2 className="text-xl font-semibold border-b pb-2 mt-4" {...props} />,
+                                h3: ({node, ...props}) => <h3 className="text-lg font-semibold mt-4" {...props} />,
+                                table: ({node, ...props}) => <table className="table-auto w-full my-4" {...props} />,
+                                thead: ({node, ...props}) => <thead className="bg-slate-100" {...props} />,
+                                th: ({node, ...props}) => <th className="px-4 py-2 text-left text-sm font-semibold text-slate-800" {...props} />,
+                                tr: ({node, ...props}) => <tr className="even:bg-slate-50" {...props} />,
+                                td: ({node, ...props}) => <td className="border-t border-slate-200 px-4 py-2 text-sm text-slate-700" {...props} />,
+                            }}
+                        >
+                            {content}
+                        </MD>
+                    </div>
                 );
         }
     }

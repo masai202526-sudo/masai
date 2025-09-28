@@ -1,88 +1,69 @@
-import React, { useState, useCallback } from 'react';
+
+import React, { useState, useCallback, useEffect } from 'react';
 import type { Tool } from '../types';
+import { generateContent, generateImage, generateVideo } from '../services/geminiService';
+import { GRADE_LEVELS } from '../constants';
+import { NGSS_STANDARDS } from '../utils/ngssStandards';
 import FileUpload from './FileUpload';
 import OutputDisplay from './OutputDisplay';
-import { generateContent, generateImage, generateVideo } from '../services/geminiService';
-import { exportAsMarkdown, exportAsPdf, exportAsDocx, exportAsSpreadsheet, markdownHasTable } from '../utils/exportUtils';
+import { SparklesIcon, ClipboardIcon, ChevronDownIcon } from './icons';
+import * as exportUtils from '../utils/exportUtils';
 
 
-interface ToolViewProps {
-  tool: Tool;
-}
+const ToolView: React.FC<{ tool: Tool }> = ({ tool }) => {
+  const [inputs, setInputs] = useState<{ [key: string]: string }>({});
+  const [gradeLevel, setGradeLevel] = useState<string>(GRADE_LEVELS[6]);
+  const [ngssStandard, setNgssStandard] = useState<string>('');
+  const [fileContent, setFileContent] = useState<string>('');
+  const [fileName, setFileName] = useState<string>('');
+  const [output, setOutput] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string>('');
+  const [copySuccess, setCopySuccess] = useState<boolean>(false);
+  const [showExportMenu, setShowExportMenu] = useState<boolean>(false);
 
-const ToolView: React.FC<ToolViewProps> = ({ tool }) => {
-  const [input, setInput] = useState('');
-  const [output, setOutput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Generating...');
-  const [error, setError] = useState('');
+  useEffect(() => {
+    // Reset state when tool changes
+    setInputs({});
+    setGradeLevel(GRADE_LEVELS[6]);
+    setNgssStandard('');
+    setFileContent('');
+    setFileName('');
+    setOutput('');
+    setIsLoading(false);
+    setError('');
+    setShowExportMenu(false);
+  }, [tool]);
 
-  // State for tool-specific fields
-  const [targetLanguage, setTargetLanguage] = useState('Spanish');
-  const [gradeLevel, setGradeLevel] = useState('8th Grade');
-  const [numQuestions, setNumQuestions] = useState('5');
-  const [studentName, setStudentName] = useState('');
-  const [recommendationRecipient, setRecommendationRecipient] = useState('');
-  
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setInputs({ ...inputs, [e.target.name]: e.target.value });
+  };
+
   const handleFileRead = useCallback((content: string, name: string) => {
-    setInput(content);
+    setFileContent(content);
+    setFileName(name);
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isLoading) return;
-    
     setIsLoading(true);
-    setError('');
     setOutput('');
+    setError('');
 
-    const contextContent = input;
-    if (!contextContent && !['jokes-generator', 'image-generator', 'video-generator'].includes(tool.id)) {
-        setError('Please provide some input or upload a file.');
-        setIsLoading(false);
-        return;
-    }
+    const allInputs = { ...inputs, gradeLevel, ngssStandard };
+    const prompt = tool.promptTemplate(allInputs, fileContent);
 
-    let prompt = tool.promptTemplate.replace('{{CONTEXT}}', contextContent);
-    
-    // Handle tool-specific placeholders
-    if(tool.outputType === 'text') {
-      switch (tool.id) {
-        case 'translate':
-          prompt = prompt.replace('{{TARGET_LANGUAGE}}', targetLanguage);
-          break;
-        case 'text-leveler':
-          prompt = prompt.replace('{{GRADE_LEVEL}}', gradeLevel);
-          break;
-        case 'multiple-choice-quiz':
-          prompt = prompt.replace('{{NUM_QUESTIONS}}', numQuestions);
-          break;
-        case 'letter-of-recommendation':
-          if (!studentName || !recommendationRecipient) {
-            setError('Please fill in all required fields for the recommendation.');
-            setIsLoading(false);
-            return;
-          }
-          prompt = prompt.replace('{{STUDENT_NAME}}', studentName);
-          prompt = prompt.replace('{{RECOMMENDATION_RECIPIENT}}', recommendationRecipient);
-          break;
-      }
-    }
-    
     try {
-      let result = '';
+      let result: string;
       switch (tool.outputType) {
         case 'image':
-          setLoadingMessage('Generating image...');
           result = await generateImage(prompt);
           break;
         case 'video':
-          setLoadingMessage('Generating video... This may take a few minutes.');
           result = await generateVideo(prompt);
           break;
         case 'text':
         default:
-          setLoadingMessage('Generating...');
           result = await generateContent(prompt);
           break;
       }
@@ -93,181 +74,184 @@ const ToolView: React.FC<ToolViewProps> = ({ tool }) => {
       setIsLoading(false);
     }
   };
-  
-  const showTableExports = tool.outputType === 'text' && markdownHasTable(output);
 
-  const renderToolSpecificFields = () => {
-    if (tool.outputType !== 'text') return null;
-    switch (tool.id) {
-      case 'translate':
-        return (
-          <div>
-            <label htmlFor="target-language" className="block text-sm font-medium text-slate-700">
-              Target Language
-            </label>
-            <input
-              id="target-language"
-              type="text"
-              value={targetLanguage}
-              onChange={(e) => setTargetLanguage(e.target.value)}
-              className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            />
-          </div>
-        );
-      case 'text-leveler':
-        return (
-           <div>
-            <label htmlFor="grade-level" className="block text-sm font-medium text-slate-700">
-              Target Grade Level
-            </label>
-            <select
-              id="grade-level"
-              value={gradeLevel}
-              onChange={(e) => setGradeLevel(e.target.value)}
-              className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            >
-              {[...Array(13).keys()].map(i => {
-                const grade = i === 0 ? 'Kindergarten' : `${i}${i === 1 ? 'st' : i === 2 ? 'nd' : i === 3 ? 'rd' : 'th'} Grade`;
-                return <option key={grade} value={grade}>{grade}</option>
-              })}
-               <option value="College">College</option>
-            </select>
-          </div>
-        );
-      case 'multiple-choice-quiz':
-        return (
-           <div>
-            <label htmlFor="num-questions" className="block text-sm font-medium text-slate-700">
-              Number of Questions
-            </label>
-            <input
-              id="num-questions"
-              type="number"
-              min="1"
-              max="20"
-              value={numQuestions}
-              onChange={(e) => setNumQuestions(e.target.value)}
-              className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-            />
-          </div>
-        );
-      case 'letter-of-recommendation':
-        return (
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="student-name" className="block text-sm font-medium text-slate-700">
-                Student's Full Name
-              </label>
-              <input
-                id="student-name"
-                type="text"
-                required
-                value={studentName}
-                onChange={(e) => setStudentName(e.target.value)}
-                className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-             <div>
-              <label htmlFor="recipient" className="block text-sm font-medium text-slate-700">
-                Applying For (e.g., "XYZ University", "ABC Scholarship")
-              </label>
-              <input
-                id="recipient"
-                type="text"
-                required
-                value={recommendationRecipient}
-                onChange={(e) => setRecommendationRecipient(e.target.value)}
-                className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-              />
-            </div>
-          </div>
-        );
-      default:
-        return null;
+  const handleCopy = () => {
+    if (output) {
+      navigator.clipboard.writeText(output);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
     }
-  }
+  };
   
-  const placeholderText = {
-    'image-generator': 'Describe the image you want to create. E.g., "A photorealistic image of a robot teaching a class of dogs".',
-    'video-generator': 'Describe the video you want to create. E.g., "A cinematic shot of a Monarch butterfly landing on a flower".',
-    'summarize': 'Paste text to summarize, or upload a file below.',
-    'code-explainer': 'Paste your code here...',
-    'translate': 'Enter text to translate...',
-    'lesson-plan-generator': 'Enter the topic, subject, or learning objective for your lesson. E.g., "Photosynthesis for 9th grade biology".',
-    'rubric-generator': 'Describe the assignment for which you need a rubric. E.g., "A 5-paragraph essay on the causes of World War I".',
-    'youtube-summarizer': 'Paste the full transcript of the YouTube video here.',
-    'text-leveler': 'Paste the text you want to adapt for a different reading level.',
-    'student-feedback': 'Paste the student\'s work here to get constructive feedback.',
-    'class-newsletter': 'List the key points, dates, and announcements you want to include in your newsletter.',
-    'letter-of-recommendation': 'Describe the student\'s strengths, skills, and any specific stories or achievements you want to highlight.',
-    'jokes-generator': 'Enter a topic for the jokes, e.g., "math", "science", "dinosaurs".'
-  }[tool.id] || 'Type or paste your text here...';
+  const isFormValid = () => {
+    return tool.inputs.every(input => inputs[input.id] && inputs[input.id].trim() !== '');
+  }
 
+  const renderInput = (input: Tool['inputs'][0]) => {
+    switch (input.type) {
+      case 'textarea':
+        return (
+          <textarea
+            id={input.id}
+            name={input.id}
+            value={inputs[input.id] || ''}
+            onChange={handleInputChange}
+            placeholder={input.placeholder}
+            rows={4}
+            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+          />
+        );
+      case 'select':
+        return (
+          <select
+            id={input.id}
+            name={input.id}
+            value={inputs[input.id] || ''}
+            onChange={handleInputChange}
+            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+          >
+            <option value="">{input.placeholder || 'Select an option'}</option>
+            {input.options?.map(option => (
+              <option key={option} value={option}>{option}</option>
+            ))}
+          </select>
+        );
+      case 'text':
+      default:
+        return (
+          <input
+            type="text"
+            id={input.id}
+            name={input.id}
+            value={inputs[input.id] || ''}
+            onChange={handleInputChange}
+            placeholder={input.placeholder}
+            className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+          />
+        );
+    }
+  };
 
   return (
-    <div className="mx-auto max-w-7xl">
-        <p className="mb-6 text-slate-600">{tool.description}</p>
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-            {/* Input Column */}
-            <div className="space-y-6 lg:col-span-1">
-                <form onSubmit={handleSubmit}>
-                    <div className="space-y-4 rounded-md border border-slate-200 bg-white p-4">
-                        
-                        <div>
-                            <label htmlFor="main-input" className="block text-sm font-medium text-slate-700">
-                                {tool.id === 'letter-of-recommendation' ? 'Key Qualities & Anecdotes' : 'Prompt'}
-                            </label>
-                            <textarea
-                                id="main-input"
-                                rows={tool.outputType === 'text' ? 10 : 5}
-                                value={input}
-                                onChange={(e) => setInput(e.target.value)}
-                                className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-                                placeholder={placeholderText}
-                            />
-                        </div>
-                        
-                        {tool.outputType === 'text' && (
-                             <FileUpload onFileRead={handleFileRead} />
-                        )}
+    <div className="flex h-full flex-col gap-8 lg:flex-row">
+      <div className="w-full lg:w-1/3 lg:max-w-md">
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <p className="text-sm text-slate-600">{tool.description}</p>
+            {tool.inputs.map(input => (
+              <div key={input.id}>
+                <label htmlFor={input.id} className="block text-sm font-medium text-slate-700">
+                  {input.label}
+                </label>
+                {renderInput(input)}
+              </div>
+            ))}
 
-                       {renderToolSpecificFields()}
+            {tool.requiresGradeLevel && (
+              <div>
+                <label htmlFor="gradeLevel" className="block text-sm font-medium text-slate-700">
+                  Grade Level
+                </label>
+                <select
+                  id="gradeLevel"
+                  name="gradeLevel"
+                  value={gradeLevel}
+                  onChange={e => setGradeLevel(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                >
+                  {GRADE_LEVELS.map(level => (
+                    <option key={level} value={level}>{level}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+            
+            {tool.requiresNGSS && (
+              <div>
+                <label htmlFor="ngssStandard" className="block text-sm font-medium text-slate-700">
+                  NGSS Standard (Optional)
+                </label>
+                <select
+                  id="ngssStandard"
+                  name="ngssStandard"
+                  value={ngssStandard}
+                  onChange={e => setNgssStandard(e.target.value)}
+                  className="mt-1 block w-full rounded-md border-slate-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                >
+                  <option value="">Select a standard</option>
+                  {NGSS_STANDARDS.map(standard => (
+                    <option key={standard.id} value={standard.name}>{standard.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="inline-flex w-full justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-indigo-400"
-                        >
-                            {isLoading ? loadingMessage : 'Generate'}
-                        </button>
+            {tool.showFileUpload && (
+              <div>
+                <FileUpload onFileRead={handleFileRead} />
+                {fileName && (
+                    <div className="mt-2 text-sm text-slate-600">
+                        File added: <span className="font-medium">{fileName}</span>
                     </div>
-                     {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-                </form>
-            </div>
+                )}
+              </div>
+            )}
 
-            {/* Output Column */}
-            <div className="flex flex-col lg:col-span-2">
-                <div className="mb-4 flex items-center justify-between">
-                    <h2 className="text-lg font-medium text-slate-900">Output</h2>
-                    {output && !isLoading && tool.outputType === 'text' && (
-                        <div className="flex space-x-2">
-                            <button onClick={() => exportAsMarkdown(output, tool.title)} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">MD</button>
-                            <button onClick={() => exportAsPdf(output, tool.title)} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">PDF</button>
-                            <button onClick={() => exportAsDocx(output, tool.title)} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">DOCX</button>
-                            {showTableExports && (
-                                <>
-                                <button onClick={() => exportAsSpreadsheet(output, tool.title, 'xlsx')} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">XLSX</button>
-                                <button onClick={() => exportAsSpreadsheet(output, tool.title, 'csv')} className="text-sm font-medium text-indigo-600 hover:text-indigo-800">CSV</button>
-                                </>
+            <button
+              type="submit"
+              disabled={isLoading || !isFormValid()}
+              className="inline-flex w-full items-center justify-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-base font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-indigo-300"
+            >
+              <SparklesIcon className="-ml-1 mr-3 h-5 w-5" />
+              {isLoading ? 'Generating...' : 'Generate'}
+            </button>
+            {error && <p className="text-sm text-red-600">{error}</p>}
+          </form>
+        </div>
+      </div>
+      <div className="flex-1">
+        <div className="flex h-full flex-col">
+            <div className="flex items-center justify-between mb-2">
+                <h2 className="text-lg font-semibold text-slate-800">Output</h2>
+                {!isLoading && output && (
+                    <div className="flex items-center space-x-2">
+                         <button onClick={handleCopy} className="inline-flex items-center text-sm font-medium text-slate-600 hover:text-indigo-600">
+                            <ClipboardIcon className="h-4 w-4 mr-1"/>
+                            {copySuccess ? 'Copied!' : 'Copy'}
+                         </button>
+                         <div className="relative">
+                            <button
+                                onClick={() => setShowExportMenu(!showExportMenu)}
+                                className="inline-flex items-center rounded-md border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                            >
+                                Export
+                                <ChevronDownIcon className="-mr-1 ml-2 h-5 w-5" />
+                            </button>
+                            {showExportMenu && (
+                                <div className="absolute right-0 mt-2 w-48 origin-top-right rounded-md bg-white shadow-lg ring-1 ring-black ring-opacity-5 focus:outline-none">
+                                    <div className="py-1">
+                                        <button onClick={() => { exportUtils.exportAsMarkdown(output, tool.title); setShowExportMenu(false); }} className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">Markdown (.md)</button>
+                                        <button onClick={() => { exportUtils.exportAsPdf(output, tool.title); setShowExportMenu(false); }} className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">PDF (.pdf)</button>
+                                        <button onClick={() => { exportUtils.exportAsDocx(output, tool.title); setShowExportMenu(false); }} className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">Word (.docx)</button>
+                                        {exportUtils.markdownHasTable(output) && (
+                                            <>
+                                            <div className="border-t border-slate-200 my-1"></div>
+                                            <button onClick={() => { exportUtils.exportAsSpreadsheet(output, tool.title, 'xlsx'); setShowExportMenu(false); }} className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">Excel (.xlsx)</button>
+                                            <button onClick={() => { exportUtils.exportAsSpreadsheet(output, tool.title, 'csv'); setShowExportMenu(false); }} className="block w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">CSV (.csv)</button>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
                             )}
-                        </div>
-                    )}
-                </div>
-                 <div className="flex-grow">
-                    <OutputDisplay content={output} isLoading={isLoading} outputType={tool.outputType} />
-                 </div>
+                         </div>
+                    </div>
+                )}
+            </div>
+            <div className="flex-grow">
+                <OutputDisplay content={output} isLoading={isLoading} outputType={tool.outputType} />
             </div>
         </div>
+      </div>
     </div>
   );
 };
