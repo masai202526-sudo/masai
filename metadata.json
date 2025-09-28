@@ -1,0 +1,5 @@
+{
+  "name": "MAS AI",
+  "description": "An AI-powered assistant for the Modern American School, combining the best features of NotebookLM and MagicSchool.ai. Upload documents, generate professional content, and export your work.",
+  "requestFramePermissions": []
+}
